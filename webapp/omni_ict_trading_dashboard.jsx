@@ -8,7 +8,7 @@ const COLORS = {
   blueDim: "#3b82f622",
 };
 
-const SYMBOLS = ["XAUUSD","EURUSD","GBPUSD","USDJPY","AUDUSD","XAGUSD","USDCAD","GBPJPY","EURJPY","NZDUSD"];
+const SYMBOLS = ["XAUUSD","EURUSD","GBPUSD","USDJPY","AUDUSD","XAGUSD","USDCAD","GBPJPY","EURJPY","NZDUSD","BTCUSD"];
 
 const TIMEFRAMES = ["M5","M15","H1","H4","D1"];
 
@@ -24,6 +24,7 @@ const SEEDS = {
   GBPJPY:{price:194.82,pip:0.01,digits:3,label:"GBP/JPY"},
   EURJPY:{price:166.28,pip:0.01,digits:3,label:"EUR/JPY"},
   NZDUSD:{price:0.5983,pip:0.0001,digits:5,label:"NZD/USD"},
+  BTCUSD:{price:76876.59,pip:0.01,digits:2,label:"BTC/USD"},
 };
 
 // ── Generate realistic OHLC bars ──
