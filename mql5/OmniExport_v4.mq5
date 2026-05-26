@@ -13,12 +13,12 @@ input string DataFile        = "omni_data.json";
 input string CmdFile         = "omni_cmd.txt";
 input string ResultFile      = "omni_result.txt";
 input int    MagicNumber     = 20250411;
-input bool   AutoTradeEnabled = false;   // MUST set true to enable live trading
+input bool   AutoTradeEnabled = false;   // 必须设为 true 才会启用实盘交易
 // Leader-election: when the EA is attached to multiple charts only one
 // instance does the export — others stand down and just refresh their
 // claim if the leader dies. Set to false to disable (not recommended).
 input bool   LeaderElection  = true;
-input int    LeaderHeartbeatSec = 15;     // leader rewrites lock; stale-after = 3×
+input int    LeaderHeartbeatSec = 15;     // 主导实例心跳间隔；超过 3 倍视为失效
 
 string LeaderFile  = "omni_leader.lock";
 bool   _isLeader   = false;
@@ -62,13 +62,13 @@ int  OnInit()
       _isLeader = TryAcquireLeadership();
       if(_isLeader)
         {
-         Print("OmniExport: this instance IS LEADER (chart=", _Symbol, ",", PeriodToString(_Period), ")");
+         Print("OmniExport：当前图表实例为主导实例（chart=", _Symbol, ",", PeriodToString(_Period), ")");
          ExportData();
         }
       else
         {
-         Print("OmniExport: another instance holds leadership — this chart will stand by ",
-               "and only take over if the leader dies. (chart=", _Symbol, ",", PeriodToString(_Period), ")");
+         Print("OmniExport：其他图表实例正在主导导出，本图表待命；主导实例失效后才会接管。（chart=",
+               _Symbol, ",", PeriodToString(_Period), ")");
         }
      }
    else
@@ -86,7 +86,7 @@ void OnDeinit(const int r)
      {
       // Release leadership on graceful exit so a fresh chart can pick up
       FileDelete(LeaderFile, FILE_COMMON);
-      Print("OmniExport: leadership released");
+      Print("OmniExport：已释放主导权");
      }
   }
 
@@ -104,7 +104,7 @@ void OnTimer()
          if(LeaderIsStale())
            {
             _isLeader = TryAcquireLeadership();
-            if(_isLeader) Print("OmniExport: stale leader detected — TAKING OVER (",
+            if(_isLeader) Print("OmniExport：检测到主导实例超时，正在接管（",
                                 _Symbol, ",", PeriodToString(_Period), ")");
            }
         }
@@ -285,7 +285,7 @@ void ExportData()
      }
    if(fh==INVALID_HANDLE)
      {
-      Print("Cannot open data file after 3 retries (chart=",
+      Print("连续 3 次无法打开数据文件（chart=",
             _Symbol, ",", PeriodToString(_Period), ", err=", GetLastError(), ")");
       return;
      }
@@ -312,8 +312,8 @@ void ExportData()
    // Balance CAN legitimately be 0 on a new/empty account, so don't gate on it.
    bool acc_ready = (StringLen(acc_currency) > 0 && acc_leverage > 0);
    if(!acc_ready)
-      Print("OmniExport: account data not yet synced (currency='",acc_currency,
-            "' leverage=",acc_leverage,") — writing zeros until broker responds");
+      Print("OmniExport：账户数据尚未同步（currency='",acc_currency,
+            "' leverage=",acc_leverage,"），经纪商响应前暂写入 0 值");
    FileWriteString(fh, "\"account\":{\n");
    FileWriteString(fh, "\"ready\":"    +(acc_ready?"true":"false")                                  +",\n");
    FileWriteString(fh, "\"login\":"    +IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN))          +",\n");
@@ -551,7 +551,7 @@ void ExportData()
    FileWriteString(fh, "\n]\n}\n");
    FileClose(fh);
    // File already written directly — no rename needed on Wine/macOS.
-   Print("OmniExport v4: updated | ",amd," | ",session);
+   Print("OmniExport v4：数据已更新 | ",amd," | ",session);
   }
 
 //+------------------------------------------------------------------+
@@ -573,7 +573,7 @@ void CheckCommands()
    FileClose(fh);
    FileDelete(CmdFile,FILE_COMMON);
    if(StringLen(cmd)<5) return;
-   Print("OmniExport: received command: ",cmd);
+   Print("OmniExport：收到交易命令：",cmd);
    string result=ProcessCommand(cmd);
    // Write result
    int rf=FileOpen(ResultFile,FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
@@ -584,7 +584,7 @@ string ProcessCommand(string cmd)
   {
    string parts[];
    int n=StringSplit(cmd,'|',parts);
-   if(n<2) return "ERROR|bad command format";
+   if(n<2) return "ERROR|命令格式错误";
    string action=parts[0];
 
    if(action=="OPEN" && n>=8)
@@ -604,7 +604,7 @@ string ProcessCommand(string cmd)
       else if(type=="SELL_LIMIT") ot=ORDER_TYPE_SELL_LIMIT;
       else if(type=="BUY_STOP")   ot=ORDER_TYPE_BUY_STOP;
       else if(type=="SELL_STOP")  ot=ORDER_TYPE_SELL_STOP;
-      else return "ERROR|unknown order type";
+      else return "ERROR|未知订单类型";
       MqlTradeRequest req={}; MqlTradeResult res={};
       req.action   =isPending?TRADE_ACTION_PENDING:TRADE_ACTION_DEAL;
       req.symbol   =sym; req.volume=vol; req.type=ot;
@@ -613,7 +613,7 @@ string ProcessCommand(string cmd)
       req.magic    =MagicNumber; req.comment=comment;
       req.type_filling=ORDER_FILLING_IOC;
       if(OrderSend(req,res))
-         return "OK|"+IntegerToString(res.order)+"|"+IntegerToString(res.deal)+"|opened "+type+" "+sym+" vol="+DoubleToString(vol,2)+" price="+DoubleToString(res.price,5);
+         return "OK|"+IntegerToString(res.order)+"|"+IntegerToString(res.deal)+"|已开仓 "+type+" "+sym+" 手数="+DoubleToString(vol,2)+" 成交价="+DoubleToString(res.price,5);
       else
          return "ERROR|"+IntegerToString(res.retcode)+"|"+res.comment;
      }
@@ -621,7 +621,7 @@ string ProcessCommand(string cmd)
    if(action=="CLOSE" && n>=3)
      {
       ulong ticket=StringToInteger(parts[1]);
-      if(!PositionSelectByTicket(ticket)) return "ERROR|position not found";
+      if(!PositionSelectByTicket(ticket)) return "ERROR|未找到持仓";
       MqlTradeRequest req={}; MqlTradeResult res={};
       req.action  =TRADE_ACTION_DEAL;
       req.symbol  =PositionGetString(POSITION_SYMBOL);
@@ -630,7 +630,7 @@ string ProcessCommand(string cmd)
       req.price   =PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY?SymbolInfoDouble(req.symbol,SYMBOL_BID):SymbolInfoDouble(req.symbol,SYMBOL_ASK);
       req.deviation=30; req.magic=MagicNumber; req.comment="OMNI_CLOSE";
       req.type_filling=ORDER_FILLING_IOC;
-      if(OrderSend(req,res)) return "OK|closed ticket="+IntegerToString(ticket);
+      if(OrderSend(req,res)) return "OK|已平仓 ticket="+IntegerToString(ticket);
       else return "ERROR|"+IntegerToString(res.retcode)+"|"+res.comment;
      }
 
@@ -639,11 +639,11 @@ string ProcessCommand(string cmd)
       ulong ticket=StringToInteger(parts[1]);
       double newSL=StringToDouble(parts[4]);
       double newTP=StringToDouble(parts[5]);
-      if(!PositionSelectByTicket(ticket)) return "ERROR|position not found";
+      if(!PositionSelectByTicket(ticket)) return "ERROR|未找到持仓";
       MqlTradeRequest req={}; MqlTradeResult res={};
       req.action=TRADE_ACTION_SLTP; req.symbol=PositionGetString(POSITION_SYMBOL);
       req.sl=newSL; req.tp=newTP; req.position=ticket;
-      if(OrderSend(req,res)) return "OK|modified ticket="+IntegerToString(ticket)+" SL="+DoubleToString(newSL,5)+" TP="+DoubleToString(newTP,5);
+      if(OrderSend(req,res)) return "OK|已修改 ticket="+IntegerToString(ticket)+" SL="+DoubleToString(newSL,5)+" TP="+DoubleToString(newTP,5);
       else return "ERROR|"+IntegerToString(res.retcode)+"|"+res.comment;
      }
 
@@ -652,9 +652,9 @@ string ProcessCommand(string cmd)
       ulong ticket=StringToInteger(parts[1]);
       MqlTradeRequest req={}; MqlTradeResult res={};
       req.action=TRADE_ACTION_REMOVE; req.order=ticket;
-      if(OrderSend(req,res)) return "OK|cancelled order="+IntegerToString(ticket);
+      if(OrderSend(req,res)) return "OK|已取消订单="+IntegerToString(ticket);
       else return "ERROR|"+IntegerToString(res.retcode)+"|"+res.comment;
      }
 
-   return "ERROR|unknown action: "+action;
+   return "ERROR|未知动作: "+action;
   }

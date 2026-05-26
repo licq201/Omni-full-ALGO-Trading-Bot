@@ -52,6 +52,7 @@ from typing import Optional
 
 # ── Centralised config (paths, thresholds, paper/live toggle) ─────────────────
 from config import cfg
+from i18n import msg as _msg
 
 # ── Phase 2f learning loop (optional — gracefully degrade if missing) ────────
 try:
@@ -88,7 +89,7 @@ def _get_feature_store():
         try:
             _FS_SINGLETON = _FeatureStore()
         except Exception as e:
-            print(f"[learning] FeatureStore init failed: {e}")
+            print(_msg("auto.learning_init_failed", name="FeatureStore", error=e))
             return None
     return _FS_SINGLETON
 
@@ -104,7 +105,7 @@ def _get_optimizer():
         try:
             _OPT_SINGLETON = _ParamOpt(fs, regime="DEFAULT")
         except Exception as e:
-            print(f"[learning] ParameterOptimizer init failed: {e}")
+            print(_msg("auto.learning_init_failed", name="ParameterOptimizer", error=e))
             return None
     return _OPT_SINGLETON
 
@@ -121,7 +122,7 @@ def _get_online_learner():
         try:
             _LEARNER_SINGLETON = _OnlineLearner(fs, opt)
         except Exception as e:
-            print(f"[learning] OnlineLearner init failed: {e}")
+            print(_msg("auto.learning_init_failed", name="OnlineLearner", error=e))
             return None
     return _LEARNER_SINGLETON
 
@@ -413,10 +414,10 @@ def _parse_modes() -> tuple:
                  or "NORMAL")
 
     if risk_mode not in RISK_PROFILES:
-        print(f"[WARN] Unknown RISK_MODE '{risk_mode}' — defaulting to MODERATE")
+        print(_msg("auto.unknown_risk_mode", mode=risk_mode))
         risk_mode = "MODERATE"
     if freq_mode not in FREQUENCY_PROFILES:
-        print(f"[WARN] Unknown FREQ_MODE '{freq_mode}' — defaulting to NORMAL")
+        print(_msg("auto.unknown_freq_mode", mode=freq_mode))
         freq_mode = "NORMAL"
 
     return risk_mode, freq_mode
@@ -2600,7 +2601,7 @@ def main():
 """)
 
     if not PAPER_MODE:
-        print("LIVE TRADING ENABLED. You have 10 seconds to cancel (Ctrl+C)...")
+        print(_msg("auto.live_warning"))
         for i in range(10, 0, -1):
             print(f"   Starting in {i}...", end="\r")
             time.sleep(1)
@@ -2609,38 +2610,39 @@ def main():
     # Import ICT precision scanner
     try:
         import ict_precision as ict
-        log.info("ICT Precision module loaded")
+        log.info(_msg("auto.module_loaded", name="ICT Precision"))
     except ImportError as e:
-        log.error(f"Cannot import ict_precision: {e}")
-        log.error("Make sure ict_precision.py is in the same folder")
+        log.error(_msg("auto.module_import_failed", name="ict_precision", error=e))
+        log.error("请确认 ict_precision.py 位于同一目录。")
         sys.exit(1)
 
     # Import dual-TF selector (enabled via rules.json dual_tf.enabled)
     _dual_tf_mod = None
     try:
         import dual_tf_selector as _dual_tf_mod
-        log.info("Dual-TF selector module loaded")
+        log.info(_msg("auto.module_loaded", name="Dual-TF selector"))
     except ImportError as e:
-        log.warning(f"dual_tf_selector not available: {e}")
+        log.warning(_msg("auto.module_import_failed", name="dual_tf_selector", error=e))
 
     # Import trade memory / AI learning engine
     try:
         from trade_memory import get_memory
         memory = get_memory()
-        log.info(f"Trade Memory loaded — {len(memory.trades)} historical trades")
+        log.info("交易记忆已加载：%d 条历史交易。", len(memory.trades))
         if memory.trades:
             log.info("\n" + memory.get_performance_report())
     except ImportError as e:
-        log.warning(f"trade_memory not available: {e} — continuing without AI memory")
+        log.warning("交易记忆模块不可用：%s，将不使用 AI 记忆继续运行。", e)
         memory = None
 
     state = load_state()
     if not state.start_time:
         state.start_time = datetime.now().isoformat()
 
-    log.info(f"Trader started | Paper={PAPER_MODE} | Risk mode={_RISK_MODE} | Freq mode={_FREQ_MODE}")
-    log.info(f"Risk: {BASE_RISK_PCT}%–{MAX_RISK_PCT}% | Conf≥{MIN_CONFIDENCE} | RR≥{MIN_RR} | MaxOpen={MAX_OPEN_TRADES}")
-    log.info(f"State loaded: {state.total_trades} trades, P&L: ${state.total_profit:.2f}")
+    log.info(_msg("auto.started", paper=PAPER_MODE, risk_mode=_RISK_MODE, freq_mode=_FREQ_MODE))
+    log.info(_msg("auto.risk_summary", base_risk=BASE_RISK_PCT, max_risk=MAX_RISK_PCT,
+                  confidence=MIN_CONFIDENCE, rr=MIN_RR, max_open=MAX_OPEN_TRADES))
+    log.info(_msg("auto.state_loaded", trades=state.total_trades, profit=state.total_profit))
     send_telegram(
         f"{'📄' if PAPER_MODE else '🚀'} <b>OMNI-ICT Bot {'[PAPER]' if PAPER_MODE else '[LIVE]'} Started</b>\n"
         f"Risk: <b>{_RISK_MODE}</b> ({BASE_RISK_PCT}%–{MAX_RISK_PCT}%) | Freq: <b>{_FREQ_MODE}</b>\n"
@@ -2738,14 +2740,14 @@ def main():
             _is_weekend = (_dow == 5) or (_dow == 6 and _utc_now.hour < 22)
             if _is_weekend:
                 if _utc_now.minute == 0:  # log once per hour
-                    log.info("Forex weekend — market closed. Sleeping until Sunday 22:00 UTC.")
+                    log.info("外汇周末休市，等待至周日 22:00 UTC 后恢复扫描。")
                 time.sleep(60)
                 continue
 
             # ── Kill switch check ──────────────────────────────────────
             if os.path.exists(KILL_SWITCH_PATH):
                 if not state.trading_halted:
-                    log.warning("KILL SWITCH ACTIVATED — HALT file detected, trading stopped")
+                    log.warning(_msg("auto.kill_switch"))
                     state.trading_halted = True
                     state.halt_reason = "Manual kill switch (HALT file)"
                     save_state(state)
@@ -2775,7 +2777,7 @@ def main():
                 data_fail_count += 1
                 _now = time.time()
                 if _now - _last_nodata_log >= 60:
-                    log.error(f"MT5 data missing ({data_fail_count * SCAN_INTERVAL:.0f}s) — is OmniExport EA running?")
+                    log.error(_msg("auto.mt5_missing", seconds=data_fail_count * SCAN_INTERVAL))
                     _last_nodata_log = _now
                 time.sleep(SCAN_INTERVAL)
                 continue
@@ -2805,7 +2807,7 @@ def main():
             positions = get_open_positions(data)
 
             if equity == 0:
-                log.warning("Equity is 0 — check MT5 connection")
+                log.warning("账户净值为 0，请检查 MT5 连接和 OmniExport 数据。")
                 time.sleep(SCAN_INTERVAL)
                 continue
 
@@ -3074,7 +3076,7 @@ def main():
             time.sleep(SCAN_INTERVAL)
 
         except KeyboardInterrupt:
-            log.info("Shutting down...")
+            log.info(_msg("auto.shutdown"))
             save_state(state)
             win_rate = state.winning_trades / state.total_trades * 100 if state.total_trades > 0 else 0
             print(f"\n  Final P&L:    ${state.total_profit:.2f}")

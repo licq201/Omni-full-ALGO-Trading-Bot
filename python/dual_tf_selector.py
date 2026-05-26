@@ -424,7 +424,7 @@ def select_trade(htf_bars: list[Bar], ltf_bars: list[Bar],
     )
 
     if macro_penalty < 0:
-        base.reasons.append(f"macro TF conflict -0.30 ({macro_note})")
+        base.reasons.append(f"macro TF conflict {macro_penalty:.2f} ({macro_note})")
 
     if bias.direction == "NEUTRAL":
         base.reasons.append("no bias → skip")

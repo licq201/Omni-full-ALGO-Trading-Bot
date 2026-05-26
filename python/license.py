@@ -1,9 +1,9 @@
 """
 license.py — License validation for OMNI-ICT.
 
-Checks OMNI_LICENSE_KEY against the license server on startup and every 24h.
-Set OMNI_LICENSE_KEY=OWNER_BYPASS to skip all checks (personal/dev use).
-Set OMNI_LICENSE_SERVER to override the validation endpoint.
+Default mode is local/offline so personal deployments never depend on the
+external license server during startup. Set OMNI_LICENSE_MODE=remote only when
+you explicitly want SaaS subscription validation.
 """
 
 from __future__ import annotations
@@ -17,13 +17,31 @@ import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
+from i18n import msg as _msg
+
 log = logging.getLogger("license")
 
 LICENSE_KEY    = os.getenv("OMNI_LICENSE_KEY", "")
+LICENSE_MODE   = os.getenv("OMNI_LICENSE_MODE", os.getenv("OMNI_AUTH_MODE", "local")).strip().lower()
 LICENSE_SERVER = os.getenv("OMNI_LICENSE_SERVER", "https://omni-full-algo-trading-bot-production.up.railway.app")
 CACHE_FILE     = Path(__file__).resolve().parent.parent / "logs" / "license_cache.json"
 RECHECK_HOURS  = 24
 OWNER_BYPASS   = "OWNER_BYPASS"
+REMOTE_MODES   = {"remote", "server", "saas", "license_server"}
+
+
+def is_remote_mode() -> bool:
+    """Return True only when remote SaaS license validation is explicitly enabled."""
+    return LICENSE_MODE in REMOTE_MODES
+
+
+def _local_result() -> dict:
+    return {
+        "valid": True,
+        "plan": "local",
+        "mode": "local",
+        "message": "Local authorization mode; remote license validation is disabled.",
+    }
 
 
 def _cache_read() -> dict:
@@ -64,22 +82,21 @@ def check(raise_on_fail: bool = True) -> dict:
     """
     Validate the license. Returns the license info dict.
     Raises SystemExit if invalid and raise_on_fail=True.
-    Owner bypass key always passes.
+    Local mode passes without network access. Owner bypass key always passes.
     """
+    if not is_remote_mode():
+        log.info(_msg("license.local_mode"))
+        return _local_result()
+
     if not LICENSE_KEY:
-        msg = (
-            "No license key set.\n"
-            "Set OMNI_LICENSE_KEY in .env\n"
-            "Purchase a subscription at https://omni-ict.com\n"
-            "Use referral broker: https://www.midasfx.com/?ib=1128101"
-        )
-        log.error(msg)
+        message = _msg("license.remote_missing_key")
+        log.error(message)
         if raise_on_fail:
             raise SystemExit(1)
-        return {"valid": False, "message": msg}
+        return {"valid": False, "message": message}
 
     if LICENSE_KEY == OWNER_BYPASS:
-        log.debug("License: owner bypass — skipping validation")
+        log.debug(_msg("license.owner_bypass"))
         return {"valid": True, "plan": "owner", "message": "Owner bypass"}
 
     # Check cache first — avoid hammering the server
@@ -88,10 +105,10 @@ def check(raise_on_fail: bool = True) -> dict:
         checked_at = cache.get("checked_at", 0)
         age_hours = (time.time() - checked_at) / 3600
         if age_hours < RECHECK_HOURS and cache.get("valid"):
-            log.debug("License: cache hit (age %.1fh) — %s", age_hours, cache.get("plan"))
+            log.debug(_msg("license.cache_hit", age_hours=age_hours, plan=cache.get("plan")))
             return cache
 
-    log.info("Validating license key %s…", LICENSE_KEY[:8] + "****")
+    log.info(_msg("license.remote_check", key_masked=LICENSE_KEY[:8] + "****"))
     result = _validate_remote(LICENSE_KEY)
     result["key"]        = LICENSE_KEY
     result["checked_at"] = time.time()
@@ -99,12 +116,11 @@ def check(raise_on_fail: bool = True) -> dict:
     if result.get("valid"):
         plan = result.get("plan", "unknown")
         exp  = result.get("expires_at", "")[:10]
-        log.info("License valid — plan=%s expires=%s", plan, exp)
+        log.info(_msg("license.remote_valid", plan=plan, expires_at=exp))
         _cache_write(result)
     else:
-        msg = result.get("message", "License invalid")
-        log.error("License check failed: %s", msg)
-        log.error("Purchase/renew at https://omni-ict.com")
+        message = result.get("message", "License invalid")
+        log.error(_msg("license.remote_failed", message=message))
         if raise_on_fail:
             raise SystemExit(1)
 
@@ -113,6 +129,8 @@ def check(raise_on_fail: bool = True) -> dict:
 
 def plan() -> str:
     """Return current plan name without raising (for info display)."""
+    if not is_remote_mode():
+        return "local"
     if LICENSE_KEY == OWNER_BYPASS:
         return "owner"
     cache = _cache_read()

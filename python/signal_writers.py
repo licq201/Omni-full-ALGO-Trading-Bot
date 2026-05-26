@@ -42,6 +42,7 @@ from typing import Optional
 
 from dual_tf_selector import TradeSelection
 from scaling_engine import ScaleAction, PositionCtx
+from i18n import msg as _msg
 
 log = logging.getLogger(__name__)
 
@@ -92,6 +93,18 @@ def build_signal(symbol: str, timeframe: str,
     # Microsecond-precision ID prevents collisions when multiple symbols trigger same second
     sid = f"{symbol}-{timeframe}-{int(ts.timestamp() * 1e6)}-{sel.direction}"
     expires_iso = (ts + timedelta(hours=6)).isoformat()
+    try:
+        from ict_diagnostics import build_scorecard
+        metadata = {
+            "ict_scorecard": build_scorecard(
+                direction=sel.direction,
+                entry_type=sel.entry_type,
+                confidence=sel.confidence,
+                reasons=list(sel.reasons),
+            )
+        }
+    except Exception:
+        metadata = {}
     return Signal(
         id=sid, ts=iso, symbol=symbol, timeframe=timeframe,
         direction=sel.direction, entry_type=sel.entry_type,
@@ -104,6 +117,7 @@ def build_signal(symbol: str, timeframe: str,
         expires_at=expires_iso,
         ema20=sel.ema20, ema200=sel.ema200, ema800=sel.ema800,
         tf_emas=sel.tf_emas,
+        metadata=metadata,
     )
 
 
@@ -124,13 +138,18 @@ def build_signals_payload(signals: list[Signal],
     }
 
 
-def write_signals_json(payload: dict, out_path: str) -> None:
+def write_signals_json(payload: dict, out_path: str, mirror_path: str | None = None) -> None:
     """Atomic write: temp file + rename so MT5 never reads a half-written file."""
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    tmp = out_path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
-    os.replace(tmp, out_path)
+    targets = [out_path]
+    if mirror_path:
+        targets.append(mirror_path)
+
+    for target in targets:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        tmp = target + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        os.replace(tmp, target)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -176,7 +195,7 @@ def _self_test() -> None:
     assert restored["version"] == SIGNALS_VERSION
     os.remove(out)
 
-    print(f"[OK] built 1 signal, wrote+verified {out}")
+    print(_msg("signals.write_ok", path=out))
     print(f"     id={sig.id} dir={sig.direction} conf={sig.confidence}")
 
 

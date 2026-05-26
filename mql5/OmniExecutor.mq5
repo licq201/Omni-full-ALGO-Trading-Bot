@@ -1,26 +1,26 @@
 //+------------------------------------------------------------------+
-//|  OmniExecutor.mq5 — executes trade commands from auto_trader.py |
+//|  OmniExecutor.mq5 — 执行 auto_trader.py 写入的交易命令           |
 //|                                                                  |
-//|  Command file:  omni_cmd.txt    (Python writes, EA reads)        |
-//|  Result file:   omni_result.txt (EA writes, Python reads)        |
+//|  命令文件：omni_cmd.txt    （Python 写入，EA 读取）              |
+//|  结果文件：omni_result.txt （EA 写入，Python 读取）              |
 //|                                                                  |
-//|  Command formats:                                                |
+//|  命令格式：                                                      |
 //|    OPEN|SYMBOL|ORDER_TYPE|PRICE|SL|TP|VOLUME|COMMENT            |
 //|    CLOSE|TICKET|||||VOLUME|                                      |
 //|    MODIFY|TICKET|||SL|TP||                                       |
 //|                                                                  |
-//|  ORDER_TYPE values: BUY BUY_LIMIT BUY_STOP SELL SELL_LIMIT       |
+//|  ORDER_TYPE 可选值：BUY BUY_LIMIT BUY_STOP SELL SELL_LIMIT       |
 //|                     SELL_STOP                                    |
 //|                                                                  |
-//|  Drop on any chart.  Does NOT interfere with OmniExport.mq5.    |
+//|  挂到任意图表即可，不会影响 OmniExport.mq5。                     |
 //+------------------------------------------------------------------+
 #property copyright "OMNI Trading Dashboard"
 #property version   "1.00"
 #property strict
 
-input int    PollMilliseconds = 500;   // How often to check for commands (ms)
-input ulong  MagicNumber      = 20250411; // Must match OUR_MAGIC in auto_trader.py
-input int    SlippagePips     = 500;    // Maximum slippage allowed (pips)
+input int    PollMilliseconds = 500;      // 命令轮询间隔（毫秒）
+input ulong  MagicNumber      = 20250411; // 必须与 auto_trader.py 的 magic 一致
+input int    SlippagePips     = 500;      // 最大允许滑点（点）
 
 string CMD_FILE    = "omni_cmd.txt";
 string RESULT_FILE = "omni_result.txt";
@@ -28,7 +28,7 @@ string RESULT_FILE = "omni_result.txt";
 int OnInit()
   {
    EventSetMillisecondTimer(PollMilliseconds);
-   Print("OmniExecutor ready | Magic=", MagicNumber, " | Poll=", PollMilliseconds, "ms");
+   Print("OmniExecutor 已就绪 | Magic=", MagicNumber, " | 轮询=", PollMilliseconds, "ms");
    return(INIT_SUCCEEDED);
   }
 
@@ -37,7 +37,7 @@ void OnTick() {}
 
 void OnTimer()
   {
-   // Check for command file (use FILE_COMMON so it matches Python's path)
+   // 检查命令文件；使用 FILE_COMMON 以匹配 Python 写入路径
    if(!FileIsExist(CMD_FILE, FILE_COMMON)) return;
 
    int fh = FileOpen(CMD_FILE, FILE_READ|FILE_TXT|FILE_ANSI|FILE_COMMON);
@@ -45,7 +45,7 @@ void OnTimer()
    string cmd = FileReadString(fh);
    FileClose(fh);
 
-   // Delete command file before executing — prevents duplicate execution on crash/retry
+   // 执行前删除命令文件，避免崩溃/重试时重复执行
    FileDelete(CMD_FILE, FILE_COMMON);
 
    string trimmed = cmd;
@@ -64,7 +64,7 @@ string ProcessCommand(string cmd)
   {
    string parts[];
    int n = StringSplit(cmd, '|', parts);
-   if(n < 1) return "ERROR|empty command";
+   if(n < 1) return "ERROR|空命令";
 
    string action = parts[0];
 
@@ -72,7 +72,7 @@ string ProcessCommand(string cmd)
    if(action == "CLOSE"  && n >= 2) return CmdClose(parts);
    if(action == "MODIFY" && n >= 6) return CmdModify(parts);
 
-   return "ERROR|unknown command: " + cmd;
+   return "ERROR|未知命令: " + cmd;
   }
 
 //+------------------------------------------------------------------+
@@ -89,9 +89,9 @@ string CmdOpen(string &p[])
    string comment = p[7];
 
    if(!SymbolSelect(symbol, true))
-      return "ERROR|symbol not found: " + symbol;
+      return "ERROR|未找到品种: " + symbol;
    if(volume <= 0)
-      return "ERROR|invalid volume: " + DoubleToString(volume, 2);
+      return "ERROR|手数无效: " + DoubleToString(volume, 2);
 
    MqlTradeRequest req = {};
    MqlTradeResult  res = {};
@@ -150,12 +150,12 @@ string CmdOpen(string &p[])
       req.type_filling = SelectFilling(symbol);
      }
    else
-      return "ERROR|unknown order type: " + otype;
+      return "ERROR|未知订单类型: " + otype;
 
    if(!OrderSend(req, res))
      {
       int err = GetLastError();
-      return "ERROR|OrderSend failed code=" + IntegerToString(err)
+      return "ERROR|下单失败 code=" + IntegerToString(err)
              + " retcode=" + IntegerToString(res.retcode)
              + " " + res.comment;
      }
@@ -176,7 +176,7 @@ string CmdClose(string &p[])
                    ? StringToDouble(p[6]) : 0;
 
    if(!PositionSelectByTicket(ticket))
-      return "ERROR|position not found: " + IntegerToString(ticket);
+      return "ERROR|未找到持仓: " + IntegerToString(ticket);
 
    string symbol  = PositionGetString(POSITION_SYMBOL);
    double pos_vol = PositionGetDouble(POSITION_VOLUME);
@@ -205,7 +205,7 @@ string CmdClose(string &p[])
    if(!OrderSend(req, res))
      {
       int err = GetLastError();
-      return "ERROR|Close failed code=" + IntegerToString(err)
+      return "ERROR|平仓失败 code=" + IntegerToString(err)
              + " retcode=" + IntegerToString(res.retcode)
              + " " + res.comment;
      }
@@ -225,12 +225,12 @@ string CmdModify(string &p[])
    double sl     = (ArraySize(p) >= 5 && StringLen(p[4]) > 0) ? StringToDouble(p[4]) : 0;
    double tp     = (ArraySize(p) >= 6 && StringLen(p[5]) > 0) ? StringToDouble(p[5]) : 0;
 
-   // Try position first, then pending order
+   // 先尝试持仓，再尝试挂单
    bool is_position = PositionSelectByTicket(ticket);
    bool is_order    = !is_position && OrderSelect(ticket);
 
    if(!is_position && !is_order)
-      return "ERROR|ticket not found: " + IntegerToString(ticket);
+      return "ERROR|未找到 ticket: " + IntegerToString(ticket);
 
    MqlTradeRequest req = {};
    MqlTradeResult  res = {};
@@ -257,7 +257,7 @@ string CmdModify(string &p[])
    if(!OrderSend(req, res))
      {
       int err = GetLastError();
-      return "ERROR|Modify failed code=" + IntegerToString(err)
+      return "ERROR|修改失败 code=" + IntegerToString(err)
              + " retcode=" + IntegerToString(res.retcode)
              + " " + res.comment;
      }
@@ -269,23 +269,23 @@ string CmdModify(string &p[])
   }
 
 //+------------------------------------------------------------------+
-//| Write result file for Python to read                             |
+//| 写入结果文件，供 Python 读取                                     |
 //+------------------------------------------------------------------+
 void WriteResult(string result)
   {
    int fh = FileOpen(RESULT_FILE, FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
    if(fh == INVALID_HANDLE)
      {
-      Print("OmniExecutor: cannot write result file");
+      Print("OmniExecutor：无法写入结果文件");
       return;
      }
    FileWriteString(fh, result);
    FileClose(fh);
-   Print("OmniExecutor result: ", result);
+   Print("OmniExecutor 执行结果：", result);
   }
 
 //+------------------------------------------------------------------+
-//| Select the best filling mode for a symbol                        |
+//| 为品种选择合适的成交模式                                         |
 //+------------------------------------------------------------------+
 ENUM_ORDER_TYPE_FILLING SelectFilling(string symbol)
   {

@@ -42,6 +42,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from i18n import msg as _msg
+
 log = logging.getLogger("watchdog")
 
 HERE = Path(__file__).resolve().parent
@@ -113,9 +115,9 @@ def _default_specs(project_root: Path) -> list[ServiceSpec]:
             restart=True,
             max_restarts=50,
         ),
-        # omni_bridge — used instead of telegram_bot for SaaS clients.
+        # omni_bridge — optional SaaS client bridge.
         # Polls central license server for commands; posts alerts back.
-        # Only starts if OMNI_TELEGRAM_TOKEN is NOT set (client mode).
+        # Starts only when remote license/bridge mode is explicitly enabled.
         ServiceSpec(
             name="omni_bridge",
             argv=[PY, "-u", str(HERE / "omni_bridge.py")],
@@ -125,6 +127,33 @@ def _default_specs(project_root: Path) -> list[ServiceSpec]:
             max_restarts=100,
         ),
     ]
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _remote_license_mode_enabled() -> bool:
+    mode = os.getenv("OMNI_LICENSE_MODE", os.getenv("OMNI_AUTH_MODE", "local"))
+    return mode.strip().lower() in {"remote", "server", "saas", "license_server"}
+
+
+def _filter_notification_specs(specs: list[ServiceSpec]) -> list[ServiceSpec]:
+    """Select local Telegram or remote bridge process without enabling SaaS by accident."""
+    has_tg_token = bool(os.getenv("OMNI_TELEGRAM_TOKEN", ""))
+    bridge_enabled = _remote_license_mode_enabled() or _env_flag("OMNI_ENABLE_OMNI_BRIDGE", False)
+
+    filtered: list[ServiceSpec] = []
+    for spec in specs:
+        if spec.name == "telegram_bot" and not has_tg_token:
+            continue
+        if spec.name == "omni_bridge" and (has_tg_token or not bridge_enabled):
+            continue
+        filtered.append(spec)
+    return filtered
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -203,8 +232,8 @@ def _spawn(spec: ServiceSpec) -> tuple[subprocess.Popen, Path]:
     log_path = LOG_DIR / f"{spec.name}.log"
     env = os.environ.copy()
     env.update(spec.env)
-    log.info("spawning %s: %s (cwd=%s, log=%s)", spec.name,
-             " ".join(spec.argv), spec.cwd, log_path)
+    log.info(_msg("watchdog.spawn", name=spec.name, command=" ".join(spec.argv),
+                  cwd=spec.cwd, log_path=log_path))
     # Open log file in a with-block so the Python-side handle closes after Popen;
     # the child process inherits the fd and keeps writing until it exits.
     with open(log_path, "ab") as fh:
@@ -230,12 +259,12 @@ def _spawn(spec: ServiceSpec) -> tuple[subprocess.Popen, Path]:
 def _terminate(rs: RunningService, grace: float = 5.0) -> None:
     if rs.proc is None or rs.proc.poll() is not None:
         return
-    log.info("terminating %s (pid=%s)", rs.spec.name, rs.proc.pid)
+    log.info(_msg("watchdog.stop", name=rs.spec.name, pid=rs.proc.pid))
     try:
         rs.proc.terminate()
         rs.proc.wait(timeout=grace)
     except subprocess.TimeoutExpired:
-        log.warning("force-killing %s (pid=%s)", rs.spec.name, rs.proc.pid)
+        log.warning(_msg("watchdog.force_kill", name=rs.spec.name, pid=rs.proc.pid))
         try:
             rs.proc.kill()
         except Exception:
@@ -479,7 +508,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         try:
             from dotenv import load_dotenv
             load_dotenv(_env_path, override=False)
-            log.info(".env loaded from %s", _env_path)
+            log.info(_msg("watchdog.env_loaded", path=_env_path))
         except ImportError:
             # python-dotenv not installed — parse a minimal subset ourselves.
             for line in _env_path.read_text(encoding="utf-8").splitlines():
@@ -491,7 +520,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 v = v.strip().strip('"').strip("'")
                 if k and k not in os.environ:
                     os.environ[k] = v
-            log.info(".env loaded (minimal parser) from %s", _env_path)
+            log.info(_msg("watchdog.env_loaded_minimal", path=_env_path))
 
     # License check (owner bypass key skips this instantly)
     try:
@@ -500,31 +529,26 @@ def main(argv: Optional[list[str]] = None) -> int:
     except SystemExit:
         return 1
     except Exception as e:
-        log.error("License module error: %s", e)
+        log.error("授权模块错误：%s", e)
         return 1
 
     cfg_errors = _validate_configs(PROJECT_ROOT)
     if cfg_errors:
         for err in cfg_errors:
-            log.error("config validation: %s", err)
-        log.error("aborting — fix config errors before starting services")
+            log.error(_msg("watchdog.config_error", error=err))
+        log.error(_msg("watchdog.config_abort"))
         return 2
 
     specs = _default_specs(PROJECT_ROOT)
 
-    # Choose telegram_bot OR omni_bridge — never both.
-    # If OMNI_TELEGRAM_TOKEN is set → owner / personal setup → use telegram_bot.
-    # Otherwise → SaaS client mode → use omni_bridge (relays via license server).
-    has_tg_token = bool(os.getenv("OMNI_TELEGRAM_TOKEN", ""))
-    specs = [s for s in specs if not (
-        (s.name == "omni_bridge" and has_tg_token) or
-        (s.name == "telegram_bot" and not has_tg_token)
-    )]
+    # Choose telegram_bot OR omni_bridge. Local mode starts neither unless a
+    # personal Telegram token is configured; SaaS bridge is opt-in only.
+    specs = _filter_notification_specs(specs)
 
     if args.only:
         specs = [s for s in specs if s.name in set(args.only)]
         if not specs:
-            print(f"no services match --only {args.only}", file=sys.stderr)
+            print(_msg("watchdog.no_matching_service", services=args.only), file=sys.stderr)
             return 2
     return supervise(specs, poll_s=args.poll, grace_s=args.grace)
 

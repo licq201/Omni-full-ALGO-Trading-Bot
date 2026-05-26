@@ -1,5 +1,7 @@
 # ── Credentials & secrets ─────────────────────────────────────────────────────
 .env
+.env.*
+!.env.example
 env
 env/
 config.json
@@ -54,6 +56,14 @@ database/
 python/telegram_chat_id.txt
 python/active_account.txt
 logs/license_cache.json
+
+# ── Local launch/runtime configs that may contain secrets ─────────────────────
+*.plist.local
+*.env.backup
+
+# ── Security audit output ─────────────────────────────────────────────────────
+security_audit*.json
+security_audit*.txt
 
 # ── Shared output ─────────────────────────────────────────────────────────────
 shared/*.json

@@ -58,6 +58,7 @@ from signal_writers import (
     Signal, build_signal, build_signals_payload,
     write_signals_json, prune_signals,
 )
+from i18n import msg as _msg
 from pine_codegen import write_pine
 from amd_engine import detect_amd, AMDPhase, pip_size_for
 
@@ -468,7 +469,7 @@ def run_cycle(
             # filter for trade quality.
             amd_phase_value = amd_meta.get("phase", "") if amd_meta else ""
             if amd_cfg.get("veto_accumulation", True) and amd_phase_value == "ACCUMULATION":
-                log.info("AMD VETO %s: accumulation phase — skipping signal", symbol)
+                log.info(_msg("orchestrator.amd_veto", symbol=symbol))
                 continue  # Skip this symbol entirely
 
             produced.append(sig)
@@ -487,21 +488,24 @@ def run_cycle(
               PROJECT_ROOT / sig_cfg.get("output_dir", "shared") / "signals.json")
     p_path = (Path(pine_path) if pine_path else
               PROJECT_ROOT / sig_cfg.get("pine_path", "pine/omni_pine_overlay.pine"))
+    mirror_path = sig_cfg.get("mirror_mt5_common_path", "")
 
     try:
         payload = build_signals_payload(kept)
-        write_signals_json(payload, str(s_path))
+        write_signals_json(payload, str(s_path), mirror_path=mirror_path or None)
         written.append(str(s_path))
+        if mirror_path:
+            written.append(str(mirror_path))
     except Exception as e:
         errors.append(f"write_signals_json: {e}")
-        log.exception("write_signals_json failed")
+        log.exception(_msg("orchestrator.signal_write_failed", error=e))
 
     try:
         write_pine(kept, str(p_path))
         written.append(str(p_path))
     except Exception as e:
         errors.append(f"write_pine: {e}")
-        log.exception("write_pine failed")
+        log.exception(_msg("orchestrator.pine_write_failed", error=e))
 
     return CycleResult(
         ts=ts_iso,
@@ -526,7 +530,7 @@ def _build_fetcher(dry_run: bool) -> BarFetcher:
     try:
         return MT5BarFetcher()
     except Exception as e:
-        log.warning("MT5 not available (%s); falling back to FixtureBarFetcher", e)
+        log.warning(_msg("orchestrator.mt5_fallback", error=e))
         return FixtureBarFetcher()
 
 
@@ -566,7 +570,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         try:
             _once()
         except KeyboardInterrupt:
-            log.info("orchestrator stopped by user")
+            log.info(_msg("orchestrator.stopped"))
             return 0
         except Exception:
             log.exception("cycle failed; continuing")

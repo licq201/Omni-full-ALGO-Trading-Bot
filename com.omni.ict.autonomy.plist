@@ -58,10 +58,8 @@
     <string>1</string>
     <key>OMNI_PAPER_MODE</key>
     <string>true</string>
-    <key>OMNI_TELEGRAM_TOKEN</key>
-    <string>8672119323:AAFnChUW2ktZez8pJPqEe0I458BdIfZRJ0k</string>
-    <key>OMNI_LICENSE_KEY</key>
-    <string>OWNER_BYPASS</string>
+    <key>OMNI_LICENSE_MODE</key>
+    <string>local</string>
   </dict>
 </dict>
 </plist>

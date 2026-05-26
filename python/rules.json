@@ -866,8 +866,9 @@
     "notes": "ADD pyramids with BOS confluence; REDUCE trims on LTF reversal at +2R."
   },
   "signals": {
-    "_comment": "Output paths for signals.json and pine overlay, relative to project root.",
+    "_comment": "Output paths for signals.json and pine overlay. mirror_mt5_common_path writes a second copy for MT5 OmniSignalOverlay.",
     "output_dir": "shared",
+    "mirror_mt5_common_path": "C:\\Users\\li\\AppData\\Roaming\\MetaQuotes\\Terminal\\Common\\Files\\omni\\signals.json",
     "pine_path": "pine/omni_pine_overlay.pine",
     "max_kept": 20
   },

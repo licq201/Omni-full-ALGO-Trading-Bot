@@ -1,11 +1,8 @@
 //+------------------------------------------------------------------+
 //|                                          OmniSignalOverlay.mq5 |
 //|                                        OMNI ICT autonomous suite |
-//|  Reads python/signals.json produced by the orchestrator and       |
-//|  draws Entry / SL / TP lines + labels per actionable signal.      |
-//|  Poll interval is configurable; file writes on the Python side    |
-//|  are atomic (tmp + rename), so this indicator never reads a       |
-//|  half-written file.                                               |
+//|  读取 orchestrator 生成的 signals.json，并在图表上绘制入场、止损、止盈。 |
+//|  Python 端采用临时文件 + 重命名写入，避免读取到半写入文件。              |
 //+------------------------------------------------------------------+
 #property copyright "OMNI ICT"
 #property version   "1.00"
@@ -14,18 +11,18 @@
 #property strict
 
 //--- inputs ---------------------------------------------------------
-input string   InpSignalsFile   = "omni\\signals.json";      // MQL5/Files relative path
-input int      InpPollSeconds   = 3;                            // poll interval (seconds)
-input color    InpBullColor     = clrTeal;                      // bullish entry color
-input color    InpBearColor     = clrRed;                       // bearish entry color
-input color    InpSLColor       = clrOrangeRed;                 // stop-loss color
-input color    InpTPColor       = clrLimeGreen;                 // take-profit color
-input int      InpLineWidth     = 2;                            // line width
-input int      InpLineLookback  = 80;                           // bars to extend lines back
-input bool     InpShowLabels    = true;                         // show entry/SL/TP labels
-input string   InpObjPrefix     = "OmniSig_";                   // prefix for all chart objects
-input bool     InpSymbolFilter  = true;                         // only show signals for current symbol
-input bool     InpTimeframeFilter = false;                      // only show signals for current TF
+input string   InpSignalsFile   = "omni\\signals.json";         // 信号文件，相对于 MQL5/Files 或 Common/Files
+input int      InpPollSeconds   = 3;                            // 轮询间隔（秒）
+input color    InpBullColor     = clrTeal;                      // 多头入场线颜色
+input color    InpBearColor     = clrRed;                       // 空头入场线颜色
+input color    InpSLColor       = clrOrangeRed;                 // 止损线颜色
+input color    InpTPColor       = clrLimeGreen;                 // 止盈线颜色
+input int      InpLineWidth     = 2;                            // 线宽
+input int      InpLineLookback  = 80;                           // 向左延伸的K线数量
+input bool     InpShowLabels    = true;                         // 显示入场/止损/止盈标签
+input string   InpObjPrefix     = "OmniSig_";                   // 图表对象前缀
+input bool     InpSymbolFilter  = true;                         // 仅显示当前品种信号
+input bool     InpTimeframeFilter = false;                      // 仅显示当前周期信号
 
 //--- internal state -------------------------------------------------
 datetime g_last_poll   = 0;
@@ -87,7 +84,7 @@ bool ReadSignalsFile(string &out_contents)
    int h = FileOpen(InpSignalsFile, flags);
    if(h == INVALID_HANDLE)
    {
-      // try non-common path
+      // 如果 Common/Files 未找到，则尝试普通 MQL5/Files 路径
       h = FileOpen(InpSignalsFile, FILE_READ | FILE_TXT | FILE_ANSI | FILE_SHARE_READ);
       if(h == INVALID_HANDLE)
          return(false);
@@ -281,7 +278,7 @@ void ParseAndDraw(const string &body)
    string arr;
    if(!ExtractSignalsArray(body, arr))
    {
-      Print("OmniSignalOverlay: no 'signals' array found.");
+      Print("OmniSignalOverlay：未找到 signals 数组。");
       return;
    }
    string objs[];
@@ -316,21 +313,21 @@ void ParseAndDraw(const string &body)
 
       string base = InpObjPrefix + id + "_";
 
-      DrawHLineSeg(base + "E", t_start, t_end, entry, c_entry, "Entry " + dir + " " + DoubleToString(conf, 2));
-      DrawHLineSeg(base + "S", t_start, t_end, sl,    InpSLColor, "SL");
+      DrawHLineSeg(base + "E", t_start, t_end, entry, c_entry, "入场 " + dir + " " + DoubleToString(conf, 2));
+      DrawHLineSeg(base + "S", t_start, t_end, sl,    InpSLColor, "止损");
       if(tp != 0.0)
-         DrawHLineSeg(base + "T", t_start, t_end, tp, InpTPColor, "TP");
+         DrawHLineSeg(base + "T", t_start, t_end, tp, InpTPColor, "止盈");
 
       if(InpShowLabels)
       {
          DrawTextLabel(base + "LE", t_end, entry, dir + " " + ent_type + " " + DoubleToString(conf, 2), c_entry);
-         DrawTextLabel(base + "LS", t_end, sl,    "SL",                              InpSLColor);
+         DrawTextLabel(base + "LS", t_end, sl,    "止损",                              InpSLColor);
          if(tp != 0.0)
-            DrawTextLabel(base + "LT", t_end, tp, "TP",                              InpTPColor);
+            DrawTextLabel(base + "LT", t_end, tp, "止盈",                              InpTPColor);
       }
       drawn++;
    }
-   Comment(StringFormat("OmniSignalOverlay: %d signals drawn (of %d parsed) @ %s",
+   Comment(StringFormat("OmniSignalOverlay：已绘制 %d 条信号（共解析 %d 条）@ %s",
                         drawn, n, TimeToString(TimeCurrent(), TIME_SECONDS)));
 }
 
